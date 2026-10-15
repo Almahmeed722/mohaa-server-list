@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MOHAA Server List</title>
+<style>
+  :root { --bg:#14170f; --card:#1f2417; --ink:#e8e6d4; --mute:#9aa085; --acc:#c9a227; --ok:#6fbf4a; --line:#343b27; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.4 system-ui,sans-serif; }
+  header { padding:14px 16px 6px; position:sticky; top:0; background:var(--bg); z-index:2; border-bottom:1px solid var(--line); }
+  h1 { margin:0 0 8px; font-size:19px; color:var(--acc); letter-spacing:.5px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input[type=search] { flex:1 1 160px; min-width:0; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:15px; }
+  button, select { padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:14px; }
+  button.primary { background:var(--acc); color:#1a1600; border-color:var(--acc); font-weight:600; }
+  #status { color:var(--mute); font-size:13px; padding:6px 0 4px; }
+  main { padding:10px 16px 40px; display:grid; gap:10px; }
+  .srv { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .srv.mine { border-color:var(--ok); }
+  .name { font-weight:600; word-break:break-word; }
+  .meta { color:var(--mute); font-size:13px; margin-top:3px; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; }
+  .addr { font:600 15px ui-monospace,Menlo,monospace; color:var(--ink); word-break:break-all; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:20px; font-size:11px; border:1px solid var(--line); color:var(--mute); margin-right:4px; }
+  .pl { color:var(--ok); font-weight:600; }
+  .help { color:var(--mute); font-size:13px; padding:4px 0 10px; }
+  .help b { color:var(--ink); }
+  .copied { background:var(--ok) !important; color:#0c1a05 !important; border-color:var(--ok) !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Medal of Honor Server List</h1>
+  <div class="bar">
+    <input id="q" type="search" placeholder="Search name, map, mode…" aria-label="Search">
+    <select id="game" aria-label="Game">
+      <option value="all">All games</option>
+      <option value="mohaa">Allied Assault</option>
+      <option value="mohaas">Spearhead</option>
+      <option value="mohaab">Breakthrough</option>
+    </select>
+    <label style="color:var(--mute);font-size:13px;white-space:nowrap"><input id="hide0" type="checkbox"> Only with players</label>
+    <button id="refresh" class="primary">Refresh</button>
+  </div>
+  <div id="status">Loading…</div>
+</header>
+<main>
+  <div class="help">Tap <b>Copy</b>, then in the game choose <b>Multiplayer &rarr; Join Internet Game &rarr; Connect to I.P. Address</b> and paste or type the address. Start the same game you pick here (Allied Assault, Spearhead or Breakthrough). You need your own copy of Medal of Honor Allied Assault; no game files are provided here. Some servers use mods and may need extra maps.</div>
+  <div id="list"></div>
+</main>
+<script>
+const FEEDS = [
+  ['mohaa',  'Allied Assault', 'https://master.333networks.com/json/mohaa'],
+  ['mohaas', 'Spearhead',      'https://master.333networks.com/json/mohaas'],
+  ['mohaab', 'Breakthrough',   'https://master.333networks.com/json/mohaab']
+];
+
+let all = [];
+const $ = id => document.getElementById(id);
+
+function clean(s){ // strip Quake colour codes like ^1 and decode HTML entities safely
+  const t = document.createElement('textarea'); t.innerHTML = String(s ?? '');
+  return t.value.replace(/\^[0-9a-zA-Z]/g,'').trim();
+}
+async function load(){
+  $('status').textContent = 'Loading live servers…';
+  $('refresh').disabled = true;
+  const out = []; let failed = 0;
+  await Promise.all(FEEDS.map(async ([key, label, url]) => {
+    try {
+      const r = await fetch(url, {cache:'no-store'});
+      if(!r.ok) throw new Error(r.status);
+      const data = await r.json();
+      const rows = Array.isArray(data) && Array.isArray(data[0]) ? data[0] : (Array.isArray(data) ? data : []);
+      rows.forEach(s => out.push({ hostname:clean(s.hostname), ip:s.ip, hostport:s.hostport || 12203,
+        mapname:clean(s.mapname), gametype:clean(s.gametype), numplayers:+s.numplayers||0, maxplayers:+s.maxplayers||0,
+        game:key, label }));
+    } catch(e){ failed++; }
+  }));
+  all = out;
+  $('refresh').disabled = false;
+  const t = new Date().toLocaleTimeString();
+  $('status').textContent = failed === FEEDS.length
+    ? 'Could not load the live list (no internet or the list is down). Your PC server is still shown.'
+    : `${out.length} servers · ${out.reduce((a,s)=>a+s.numplayers,0)} players online · updated ${t}` + (failed ? ` · ${failed} list(s) failed` : '');
+  render();
+}
+function render(){
+  const q = $('q').value.trim().toLowerCase(), g = $('game').value, only = $('hide0').checked;
+  let rows = all.filter(s => (g==='all' || s.game===g) && (!only || s.numplayers>0) &&
+    (!q || (s.hostname+' '+s.mapname+' '+s.gametype+' '+s.ip).toLowerCase().includes(q)));
+  rows.sort((a,b)=> b.numplayers-a.numplayers || a.hostname.localeCompare(b.hostname));
+  const list = $('list'); list.textContent = '';
+  rows.forEach(s => {
+    const addr = `${s.ip}:${s.hostport}`;
+    const el = document.createElement('div'); el.className = 'srv' + (s.mine ? ' mine' : '');
+    const name = document.createElement('div'); name.className='name'; name.textContent = s.hostname || '(no name)';
+    const meta = document.createElement('div'); meta.className='meta';
+    const tag = document.createElement('span'); tag.className='tag'; tag.textContent = s.mine ? 'LAN' : s.label;
+    meta.append(tag, `${s.mapname || '?'} · ${s.gametype || '?'} · `);
+    const pl = document.createElement('span'); pl.className='pl'; pl.textContent = s.mine ? 'start it on the PC' : `${s.numplayers}/${s.maxplayers}`;
+    meta.append(pl);
+    const row = document.createElement('div'); row.className='row';
+    const a = document.createElement('div'); a.className='addr'; a.textContent = addr;
+    const b = document.createElement('button'); b.textContent='Copy';
+    b.onclick = async () => {
+      try { await navigator.clipboard.writeText(addr); }
+      catch(e){ const ta=document.createElement('textarea'); ta.value=addr; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(_){} ta.remove(); }
+      b.textContent='Copied'; b.classList.add('copied'); setTimeout(()=>{ b.textContent='Copy'; b.classList.remove('copied'); }, 1500);
+    };
+    row.append(a,b); el.append(name, meta, row); list.append(el);
+  });
+}
+['input','change'].forEach(ev => { $('q').addEventListener(ev, render); $('game').addEventListener(ev, render); $('hide0').addEventListener(ev, render); });
+$('refresh').onclick = load;
+load();
+</script>
+</body>
+</html>
+
